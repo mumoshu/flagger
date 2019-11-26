@@ -3,6 +3,7 @@ package canary
 import (
 	"fmt"
 
+	"github.com/mitchellh/hashstructure"
 	ex "github.com/pkg/errors"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -19,28 +20,6 @@ type ServiceController struct {
 	flaggerClient clientset.Interface
 	logger        *zap.SugaredLogger
 }
-
-// SetStatusFailedChecks updates the canary failed checks counter
-func (c *ServiceController) SetStatusFailedChecks(cd *flaggerv1.Canary, val int) error {
-	return setStatusFailedChecks(c.flaggerClient, cd, val)
-}
-
-// SetStatusWeight updates the canary status weight value
-func (c *ServiceController) SetStatusWeight(cd *flaggerv1.Canary, val int) error {
-	return setStatusWeight(c.flaggerClient, cd, val)
-}
-
-// SetStatusIterations updates the canary status iterations value
-func (c *ServiceController) SetStatusIterations(cd *flaggerv1.Canary, val int) error {
-	return setStatusIterations(c.flaggerClient, cd, val)
-}
-
-// SetStatusPhase updates the canary status phase
-func (c *ServiceController) SetStatusPhase(cd *flaggerv1.Canary, phase flaggerv1.CanaryPhase) error {
-	return setStatusPhase(c.flaggerClient, cd, phase)
-}
-
-var _ Controller = &ServiceController{}
 
 // Initialize creates the primary deployment, hpa,
 // scales to zero the canary deployment and returns the pod selector label and container ports
@@ -110,16 +89,22 @@ func (c *ServiceController) ScaleFromZero(cd *flaggerv1.Canary) error {
 	return nil
 }
 
-func (c *ServiceController) SyncStatus(cd *flaggerv1.Canary, status flaggerv1.CanaryStatus) error {
-	dep, err := c.kubeClient.CoreV1().Services(cd.Namespace).Get(cd.Spec.TargetRef.Name, metav1.GetOptions{})
+func (c *ServiceController) SetStatusTrack(cd *flaggerv1.Canary) error {
+	svc, err := c.kubeClient.CoreV1().Services(cd.Namespace).Get(cd.Spec.TargetRef.Name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return fmt.Errorf("service %s.%s not found", cd.Spec.TargetRef.Name, cd.Namespace)
 		}
-		return ex.Wrap(err, "SyncStatus service query error")
+		return ex.Wrap(err, "SetStatusTrack service query error")
+	}
+	hash, err := hashstructure.Hash(svc.Spec, nil)
+	if err != nil {
+		return ex.Wrap(err, "SetStatusTrack hash error")
 	}
 
-	return syncCanaryStatus(c.flaggerClient, cd, status, dep.Spec, func(cdCopy *flaggerv1.Canary) {})
+	cd.Status.LastAppliedSpec = fmt.Sprintf("%d", hash)
+
+	return nil
 }
 
 func (c *ServiceController) HaveDependenciesChanged(cd *flaggerv1.Canary) (bool, error) {

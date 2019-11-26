@@ -49,11 +49,28 @@ func (factory *Factory) Controller(kind string) Controller {
 
 	switch {
 	case kind == "Deployment":
-		return deploymentCtrl
+		return &controller{
+			TargetController: deploymentCtrl,
+			StatusUpdater: &statusUpdater{
+				flaggerClient: factory.flaggerClient,
+				statusUpdater: deploymentCtrl,
+			},
+		}
 	case kind == "Service":
-		return serviceCtrl
+		return &controller{
+			TargetController: serviceCtrl,
+			StatusUpdater: &statusUpdater{
+				flaggerClient: factory.flaggerClient,
+				statusUpdater: serviceCtrl,
+			},
+		}
 	default:
-		return deploymentCtrl
+		return &controller{
+			TargetController: deploymentCtrl,
+			StatusUpdater: &statusUpdater{
+				flaggerClient: factory.flaggerClient,
+				statusUpdater: deploymentCtrl,
+			},
+		}
 	}
-
 }
